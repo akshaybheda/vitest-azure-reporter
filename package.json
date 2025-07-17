@@ -1,7 +1,7 @@
 {
-  "name": "@alex_neo/playwright-azure-reporter",
-  "version": "1.13.1",
-  "description": "Playwright Azure Reporter",
+  "name": "@akshaybheda/vitest-azure-reporter",
+  "version": "1.0.0",
+  "description": "Vitest Azure Reporter",
   "main": "./dist/playwright-azure-reporter.js",
   "types": "./dist/playwright-azure-reporter.d.js",
   "scripts": {
@@ -34,7 +34,7 @@
     "exec": "yarn run build"
   },
   "keywords": [
-    "playwright",
+    "vitest",
     "azure",
     "reporter"
   ],
@@ -42,13 +42,13 @@
     "registry": "https://registry.npmjs.org/"
   },
   "author": {
-    "name": "Oleksii Galagan",
-    "email": "alexneo2003@gmail.com",
-    "url": "https://github.com/alexneo2003/"
+    "name": "Akshay Bheda",
+    "email": "akshaybheda@gmail.com",
+    "url": "https://github.com/akshaybheda/"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/alexneo2003/playwright-azure-reporter.git"
+    "url": "https://github.com/akshaybheda/vitest-azure-reporter.git"
   },
   "license": "ISC",
   "dependencies": {
