@@ -1,0 +1,12 @@
+{
+    "name": "vitest-azure-reporter-test",
+    "version": "1.0.0",
+    "private": true,
+    "scripts": {
+        "test": "vitest run"
+    },
+    "dependencies": {
+        "vitest": "^3.2.4",
+        "dotenv": "^16.4.5"
+    }
+}
