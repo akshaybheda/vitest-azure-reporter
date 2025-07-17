@@ -1,6 +1,6 @@
-# Playwright Azure Reporter
+# ViTest Azure Reporter
 
-![GitHub](https://img.shields.io/github/license/alexneo2003/playwright-azure-reporter) ![npm (scoped)](https://img.shields.io/npm/v/@alex_neo/playwright-azure-reporter) ![npm](https://img.shields.io/npm/dw/@alex_neo/playwright-azure-reporter) ![npm](https://img.shields.io/npm/dt/@alex_neo/playwright-azure-reporter)
+![GitHub](https://img.shields.io/github/license/akshaybheda/vitest-azure-reporter/) ![npm (scoped)](https://img.shields.io/npm/v/@akshaybheda/vitest-azure-reporter/) ![npm](https://img.shields.io/npm/dw/@akshaybheda/vitest-azure-reporter/) ![npm](https://img.shields.io/npm/dt/@akshaybheda/vitest-azure-reporter/)
 
 ## A must read!
 
