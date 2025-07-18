@@ -1,6 +1,6 @@
 # Vitest Azure Reporter
 
-![GitHub](https://img.shields.io/github/license/akshaybheda/vitest-azure-reporter/) ![npm (scoped)](https://img.shields.io/npm/v/@akshaybheda/vitest-azure-reporter/) ![npm](https://img.shields.io/npm/dw/@akshaybheda/vitest-azure-reporter/) ![npm](https://img.shields.io/npm/dt/@akshaybheda/vitest-azure-reporter/)
+![GitHub](https://img.shields.io/github/license/akshaybheda/vitest-azure-reporter) ![npm (scoped)](https://img.shields.io/npm/v/%40akshaybheda%2Fvitest-azure-reporter) ![npm](https://img.shields.io/npm/dw/%40akshaybheda%2Fvitest-azure-reporter) ![npm](https://img.shields.io/npm/dt/%40akshaybheda%2Fvitest-azure-reporter)
 
 A Vitest reporter that integrates with Azure DevOps Test Plans to automatically publish test results.
 
