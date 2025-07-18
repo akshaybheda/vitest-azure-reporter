@@ -1,6 +1,6 @@
 {
   "name": "@akshaybheda/vitest-azure-reporter",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Vitest Azure Reporter",
   "type": "module",
   "main": "./dist/vitest-azure-reporter.js",
