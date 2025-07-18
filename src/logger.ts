@@ -7,8 +7,8 @@ class Logger {
   private isLogging: boolean;
 
   constructor(isLogging: boolean) {
-    this.rootNamespace = 'azure:pw';
-    this.namespace = process.env.AZUREPWDEBUG === '1' ? 'azure:pw:*' : 'azure:pw:log,azure:pw:warn,azure:pw:error';
+    this.rootNamespace = 'azure:vitest';
+    this.namespace = process.env.AZUREPWDEBUG === '1' ? 'azure:vitest:*' : 'azure:vitest:log,azure:vitest:warn,azure:vitest:error';
     this.isLogging = isLogging;
 
     if (this.isLogging && !this.isDisabled()) {
@@ -17,7 +17,7 @@ class Logger {
   }
 
   private isDisabled() {
-    return process.env.AZURE_PW_DISABLED === 'true';
+    return process.env.AZURE_VITEST_DISABLED === 'true';
   }
 
   // eslint-disable-next-line no-unused-vars
@@ -27,7 +27,7 @@ class Logger {
         message = JSON.stringify(message, null, 2);
       }
       let enabled = false;
-      if (['warn', 'error'].includes(level) || this.namespace === 'azure:pw:*') {
+      if (['warn', 'error'].includes(level) || this.namespace === 'azure:vitest:*') {
         enabled = debug.enabled(`${this.rootNamespace}:${level}`);
         debug.enable(`${this.rootNamespace}:${level}`);
         const log = debug(this.rootNamespace).extend(level);
