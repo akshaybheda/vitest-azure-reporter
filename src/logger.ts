@@ -8,7 +8,7 @@ class Logger {
 
   constructor(isLogging: boolean) {
     this.rootNamespace = 'azure:vitest';
-    this.namespace = process.env.AZUREPWDEBUG === '1' ? 'azure:vitest:*' : 'azure:vitest:log,azure:vitest:warn,azure:vitest:error';
+    this.namespace = process.env.AZURE_VITEST_DEBUG === '1' ? 'azure:vitest:*' : 'azure:vitest:log,azure:vitest:warn,azure:vitest:error';
     this.isLogging = isLogging;
 
     if (this.isLogging && !this.isDisabled()) {

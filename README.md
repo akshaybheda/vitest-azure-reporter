@@ -9,7 +9,7 @@ A Vitest reporter that integrates with Azure DevOps Test Plans to automatically 
 - 🎯 **Smart Workflow**: Only runs Azure DevOps integration if tests have case ID annotations
 - 🚀 **Modern ES Modules**: Full ES module support with Node.js 20+
 - 🔧 **Flexible Configuration**: Supports multiple configuration IDs and custom test point mapping
-- 📋 **Test Case Annotations**: Extract test case IDs from test names or annotations
+- 📋 **Test Case IDs**: Extract test case IDs from test names with `[1234]` format
 - 🔄 **Automatic Test Run Management**: Creates and completes test runs automatically
 - ⚡ **Efficient Processing**: Uses `onTestModuleEnd` for batch processing of test results
 
@@ -21,11 +21,11 @@ A Vitest reporter that integrates with Azure DevOps Test Plans to automatically 
 
 ## Important Notes
 
-**Optimized Workflow**: The reporter will only create Azure DevOps test runs and publish results if your tests contain test case ID annotations. Tests without annotations will run normally but won't trigger any Azure DevOps integration, making it efficient for mixed test suites.
+**Optimized Workflow**: The reporter will only create Azure DevOps test runs and publish results if your tests contain test case ID annotations or test name IDs. Tests without either will run normally but won't trigger any Azure DevOps integration, making it efficient for mixed test suites.
 
 **Configuration Requirements**: The reporter requires defining `testRunConfig.configurationIds` or a `testPointMapper` function in the reporter config to avoid publishing results for all configurations.
 
-**Test Case ID Formats**: You can define test case IDs in test names using the format `[1234]` where `1234` is your Azure DevOps test case ID.
+**Test Case ID Methods**: You can associate Azure DevOps test case IDs using test names that include `[1234]` format where `1234` is your Azure DevOps test case ID.
 
 ## Installation
 
@@ -45,58 +45,109 @@ yarn add @akshaybheda/vitest-azure-reporter
 
 ### Basic Setup
 
-You must register an ID of already existing test cases from Azure DevOps before running tests.
-
-> **You need to write testCaseId wrapped in square brackets in the test name.**
+You must register an ID of already existing test cases from Azure DevOps before running tests. The reporter extracts test case IDs from test names that include IDs wrapped in square brackets.
 
 ### Test Case ID Formats
 
-You can define multiple test cases for a single test with the following formats:
+The vitest-azure-reporter supports two methods for defining Azure DevOps test case IDs:
 
-- `[1] Test name` - single test case
-- `[1,2,3] Test name` - multiple test cases
-- `[16, 17, 18] Test name` - multiple test cases with spaces
-- `[1, 2, 3] Test name [4] Test name [5][6] Test name` - with combined format
+#### Method 1: Using Vitest Annotations (Recommended)
 
-### Example Tests
+Use Vitest's built-in `annotate()` function to attach test case IDs:
 
 ```typescript
 import { describe, expect, it } from 'vitest';
 
 describe('[1698831] Sample test suite', () => {
-  it('[1] First Test', () => {
-    expect(true).toBe(true);
+  it('test 1 - annotation only', async ({ annotate }) => {
+    await annotate('[1698818]');
+    expect(1 + 1).toBe(2);
   });
 
-  it('Correct test [3]', () => {
-    expect(true).toBe(true);
-  });
-
-  it.skip('Skipped test [4]', () => {
-    expect(true).toBe(true);
-  });
-
-  it('[6] Failed test', () => {
-    expect(true).toBe(false);
-  });
-
-  it('[7] Test seven [8] Test eight [9] Test nine', () => {
-    expect(true).toBe(true);
-  });
-
-  it('[10,11,12] Test ten, eleven, twelve', () => {
-    expect(true).toBe(true);
-  });
-
-  it('[13, 14, 15] Test thirteen, fourteen, fifteen', () => {
-    expect(true).toBe(true);
-  });
-
-  it('[16, 17, 18] Test sixteen, seventeen, eighteen [19] Test nineteen', () => {
-    expect(true).toBe(true);
+  it('test 3 - both methods', async ({ annotate }) => {
+    await annotate('[1698834,1698835]');
+    // This test will be reported for IDs: 1698833, 1698834, 1698835
+    expect(3 + 3).toBe(6);
   });
 });
 ```
+
+#### Method 2: Test Name-Based IDs
+
+You can also define test case IDs directly in test names using square brackets:
+
+```typescript
+import { describe, expect, it } from 'vitest';
+
+describe('[1698831] Sample test suite', () => {
+  it('[1698832] test 2 - name only', () => {
+    expect(2 + 2).toBe(4);
+  });
+
+  it('[1001,1002,1003] should handle multiple test cases', () => {
+    expect(true).toBe(true);
+  });
+
+  it('should test user authentication [2001]', () => {
+    // Your test logic here
+    expect('user').toBe('user');
+  });
+
+  it.skip('[3001] skipped test example', () => {
+    expect(true).toBe(true);
+  });
+
+  it('[4001] failing test example', () => {
+    expect(true).toBe(false); // This will fail and be reported
+  });
+});
+```
+
+#### Method 3: Combining Both Methods
+
+You can use both methods in the same test - the reporter will extract IDs from both sources:
+
+```typescript
+describe('[1698831] Sample test suite', () => {
+  it('[1698833] test 3 - both methods', async ({ annotate }) => {
+    await annotate('[1698834,1698835]');
+    // This test will be reported for IDs: 1698833, 1698834, 1698835
+    expect(3 + 3).toBe(6);
+  });
+});
+```
+
+#### Tests Without Test Case IDs
+
+Tests without test case IDs (no annotations and no IDs in test names) will be ignored by the reporter:
+
+```typescript
+describe('[1698831] Sample test suite', () => {
+  it('test 4 - no IDs (will be skipped)', () => {
+    expect(4 + 4).toBe(8);
+  });
+});
+
+// Example of tests without test case IDs - these won't be reported to Azure DevOps
+describe('Tests without test case IDs', () => {
+  it('should pass but not be reported to Azure DevOps', () => {
+    expect(2 + 2).toBe(4);
+  });
+
+  it('another test without Azure DevOps integration', () => {
+    expect('hello').toBe('hello');
+  });
+});
+```
+
+### Supported Test Case ID Formats
+
+You can define multiple test cases for a single test:
+
+- `[1001]` - single test case
+- `[1001,1002,1003]` - multiple test cases (comma-separated)
+- `[1001, 1002, 1003]` - multiple test cases with spaces
+- `[1001] Test one [1002] Test two [1003][1004] Test three and four` - combined formats in test names
 
 ### Vitest Configuration
 
@@ -214,29 +265,6 @@ Reporter options (\* - required):
     }
   };
   ```
-
-- `testCaseIdMatcher` [string|RegExp|string[]|RegExp[]] - Pattern(s) to extract test case IDs from test names. Default: `/\[([\d,\s]+)\]/`
-
-  #### Examples
-
-  - Test title: `Test case @tag1=123`
-
-    - `testCaseIdMatcher: /@tag1=(\d+)/`
-    - Extracted IDs: `['123']`
-
-  - Test title: `Test case @TestCase=123 [@TestCase=456]`
-
-    - `testCaseIdMatcher: /@TestCase=(\d+)/`
-    - Extracted IDs: `['123', '456']`
-
-  - Test title: `Test case test123 TEST456`
-
-    - `testCaseIdMatcher: [/[a-z]+(\d+)/, /[A-Z]+(\d+)/]`
-    - Extracted IDs: `['123', '456']`
-
-  - Test title: `Test case @tag1=123 @tag2=456`
-    - `testCaseIdMatcher: ['@tag1=(\\d+)', '@tag2=(\\d+)']`
-    - Extracted IDs: `['123', '456']`
 
 ### Advanced Options
 
@@ -367,7 +395,7 @@ export default defineConfig({
 
 1. **No test results published**
 
-   - Ensure your tests have test case IDs in the format `[1234]`
+   - Ensure your tests have test case IDs in the format `[1234]` in test names
    - Check that `configurationIds` are correctly set in `testRunConfig`
    - Verify your Azure DevOps token has sufficient permissions
 
@@ -379,8 +407,9 @@ export default defineConfig({
 
 3. **Test case IDs not recognized**
    - Verify test case IDs exist in your Azure DevOps Test Plan
-   - Check that the `testCaseIdMatcher` pattern matches your test naming convention
-   - Ensure test case IDs are wrapped in square brackets `[1234]`
+   - Ensure test case IDs are wrapped in square brackets `[1234]` in test names
+   - Make sure test case IDs are valid numbers and exist in your test plan
+   - The reporter uses the pattern `/\[([0-9,\s]+)\]/g` to extract IDs from test names
 
 ### Debug Mode
 

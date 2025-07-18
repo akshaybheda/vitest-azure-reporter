@@ -3,7 +3,7 @@ import * as azdev from 'azure-devops-node-api';
 import type { IRequestOptions } from 'azure-devops-node-api/interfaces/common/VsoBaseInterfaces';
 import type * as TestInterfaces from 'azure-devops-node-api/interfaces/TestInterfaces';
 import type * as Test from 'azure-devops-node-api/TestApi';
-import type { Reporter, TestCase, TestModule } from 'vitest/node';
+import type { Reporter, TestCase, TestCollection, TestModule } from 'vitest/node';
 import Logger from './logger.js';
 
 export interface AzureReporterOptions {
@@ -121,8 +121,8 @@ class AzureDevOpsReporter implements Reporter {
   private getCaseIdsFromAnnotations(testCase: TestCase): string[] {
     const caseIds: string[] = [];
 
-    // Get annotations from the test case
-    const annotations = testCase.annotations || [];
+    // Get annotations from the test case (includes await annotate() calls)
+    const annotations = testCase.annotations() || [];
 
     if (Array.isArray(annotations)) {
       annotations.forEach((annotation: any) => {
@@ -411,15 +411,13 @@ class AzureDevOpsReporter implements Reporter {
   private getAllTestCases(testModule: TestModule): TestCase[] {
     const testCases: TestCase[] = [];
 
-    function collectTestCases(collection: any): void {
+    function collectTestCases(collection: TestCollection): void {
       // Handle TestCollection which is iterable
-      if (collection && typeof collection[Symbol.iterator] === 'function') {
-        for (const child of collection) {
-          if (child.type === 'test') {
-            testCases.push(child as TestCase);
-          } else if (child.children) {
-            collectTestCases(child.children);
-          }
+      for (const child of collection) {
+        if (child.type === 'test') {
+          testCases.push(child as TestCase);
+        } else if (child.children) {
+          collectTestCases(child.children);
         }
       }
     }
