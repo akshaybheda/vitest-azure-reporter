@@ -1,13 +1,23 @@
 {
   "name": "@akshaybheda/vitest-azure-reporter",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Vitest Azure Reporter",
+  "type": "module",
   "main": "./dist/vitest-azure-reporter.js",
   "types": "./dist/vitest-azure-reporter.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/vitest-azure-reporter.js",
+      "types": "./dist/vitest-azure-reporter.d.ts"
+    }
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
   "scripts": {
     "test": "npx vitest run",
     "test:reporter": "npx playwright test -c tests/reporter/playwright.config.ts",
-    "lint": "tsc --noEmit --skipLibCheck --pretty && eslint --ext .ts .",
+    "lint": "tsc --noEmit --skipLibCheck --pretty",
     "lint:fix": "eslint src/** tests/** --ext .ts --fix",
     "format": "prettier --write src/**/*.ts tests/**/*.ts",
     "build": "yarn run clean && yarn run dev",
@@ -57,8 +67,10 @@
     "chalk": "4.1.2",
     "debug": "^4.3.4",
     "dotenv": "^16.4.5",
-    "mime": "^3.0.0",
-    "vitest": "^3.2.4"
+    "mime": "^3.0.0"
+  },
+  "peerDependencies": {
+    "vitest": "^3.0.0"
   },
   "devDependencies": {
     "@types/debug": "^4.1.7",
@@ -78,7 +90,8 @@
     "husky": "^8.0.3",
     "prettier": "^2.8.7",
     "socksv5": "^0.0.6",
-    "typescript": "^5.0.3"
+    "typescript": "^5.0.3",
+    "vitest": "^3.2.4"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

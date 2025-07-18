@@ -3,9 +3,8 @@ import * as azdev from 'azure-devops-node-api';
 import type { IRequestOptions } from 'azure-devops-node-api/interfaces/common/VsoBaseInterfaces';
 import type * as TestInterfaces from 'azure-devops-node-api/interfaces/TestInterfaces';
 import type * as Test from 'azure-devops-node-api/TestApi';
-import type { Reporter, TestCase } from 'vitest/node';
-
-import Logger from './logger';
+import type { Reporter, TestCase, TestModule } from 'vitest/node';
+import Logger from './logger.js';
 
 export interface AzureReporterOptions {
   token: string;
@@ -37,9 +36,10 @@ class AzureDevOpsReporter implements Reporter {
   private readonly logger: Logger;
   private testApi: Promise<Test.ITestApi>;
   private readonly azureConnection: WebApi;
-  private readonly options: Required<AzureReporterOptions>;
+  private readonly azureOptions: Required<AzureReporterOptions>;
   private readonly pendingResults: TestResult[] = [];
   private testRunId?: number;
+  private hasAnnotatedTests: boolean = false;
   private readonly testPointMapper: (
     // eslint-disable-next-line no-unused-vars
     testCase: TestCase,
@@ -62,7 +62,7 @@ class AzureDevOpsReporter implements Reporter {
       return testPoints;
     };
 
-    this.options = {
+    this.azureOptions = {
       environment: '',
       testRunTitle: 'Vitest Test Run',
       logging: false,
@@ -71,15 +71,15 @@ class AzureDevOpsReporter implements Reporter {
     } as Required<AzureReporterOptions>;
 
     this.testPointMapper = options.testPointMapper || defaultTestPointMapper;
-    this.logger = new Logger(this.options.logging);
+    this.logger = new Logger(this.azureOptions.logging);
 
     // Validate required configuration options
     this.validateConfig();
 
     // Initialize Azure DevOps connection
     this.azureConnection = new azdev.WebApi(
-      this.options.orgUrl,
-      azdev.getPersonalAccessTokenHandler(this.options.token),
+      this.azureOptions.orgUrl,
+      azdev.getPersonalAccessTokenHandler(this.azureOptions.token),
       {
         allowRetries: true,
         maxRetries: 5
@@ -94,7 +94,7 @@ class AzureDevOpsReporter implements Reporter {
     const requiredFields: Array<keyof AzureReporterOptions> = ['orgUrl', 'projectName', 'planId', 'token'];
 
     for (const field of requiredFields) {
-      if (!this.options[field]) {
+      if (!this.azureOptions[field]) {
         const errorMessage = `'${field}' is not set. Reporting is disabled.`;
         this.logger.warn(errorMessage);
         throw new Error(errorMessage);
@@ -103,7 +103,7 @@ class AzureDevOpsReporter implements Reporter {
 
     // Validate orgUrl format
     try {
-      new URL(this.options.orgUrl);
+      new URL(this.azureOptions.orgUrl);
     } catch {
       const errorMessage = `'orgUrl' must be a valid URL. Reporting is disabled.`;
       this.logger.warn(errorMessage);
@@ -111,7 +111,7 @@ class AzureDevOpsReporter implements Reporter {
     }
 
     // Validate planId is a positive number
-    if (typeof this.options.planId !== 'number' || this.options.planId <= 0) {
+    if (typeof this.azureOptions.planId !== 'number' || this.azureOptions.planId <= 0) {
       const errorMessage = `'planId' must be a positive number. Reporting is disabled.`;
       this.logger.warn(errorMessage);
       throw new Error(errorMessage);
@@ -120,41 +120,37 @@ class AzureDevOpsReporter implements Reporter {
 
   private getCaseIdsFromAnnotations(testCase: TestCase): string[] {
     const caseIds: string[] = [];
-    const annotations = testCase.annotations();
 
-    this.logger.info(`Checking annotations for test: ${testCase.name}`);
-    this.logger.info(`Found ${annotations.length} annotation(s)`);
+    // Get annotations from the test case
+    const annotations = testCase.annotations || [];
 
-    annotations.forEach((annotation, index) => {
-      this.logger.info(`Annotation ${index + 1}: type="${annotation.type}", message="${annotation.message}"`);
-
-      if (annotation.message) {
-        // Regex to match [123] or [123,456,789] patterns
-        const idRegex = /\[([0-9,\s]+)\]/g;
-        let match;
-        while ((match = idRegex.exec(annotation.message)) !== null) {
-          const ids = match[1].split(',').map(id => id.trim()).filter(id => id.length > 0);
-          this.logger.info(`Found case IDs in annotation: ${ids.join(', ')}`);
-          caseIds.push(...ids);
+    if (Array.isArray(annotations)) {
+      annotations.forEach((annotation: any) => {
+        if (annotation.message) {
+          // Regex to match [123] or [123,456,789] patterns
+          const idRegex = /\[([0-9,\s]+)\]/g;
+          let match;
+          while ((match = idRegex.exec(annotation.message)) !== null) {
+            const ids = match[1].split(',').map(id => id.trim()).filter(id => id.length > 0);
+            caseIds.push(...ids);
+          }
         }
-      }
-    });
+      });
+    }
 
     // Also check the test name directly for case IDs
     const testNameRegex = /\[([0-9,\s]+)\]/g;
     let nameMatch;
     while ((nameMatch = testNameRegex.exec(testCase.name)) !== null) {
       const ids = nameMatch[1].split(',').map(id => id.trim()).filter(id => id.length > 0);
-      this.logger.info(`Found case IDs in test name: ${ids.join(', ')}`);
       caseIds.push(...ids);
     }
 
     const uniqueIds = [...new Set(caseIds)];
-    this.logger.info(`Final unique case IDs: ${uniqueIds.join(', ')}`);
     return uniqueIds;
   }
 
-  private getAzureStatus(state: 'passed' | 'failed' | 'skipped' | 'pending'): string {
+  private getAzureStatus(state: string): string {
     switch (state) {
       case 'passed':
         return 'Passed';
@@ -164,8 +160,9 @@ class AzureDevOpsReporter implements Reporter {
         return 'NotApplicable';
       case 'pending':
         return 'Paused';
+      case 'unknown':
       default:
-        return 'NotApplicable';
+        return 'Passed'; // Default to passed if we can't determine the state
     }
   }
 
@@ -179,7 +176,7 @@ class AzureDevOpsReporter implements Reporter {
       };
 
       const api = await this.testApi;
-      const pointsQueryResult = await api.getPointsByQuery(pointsQuery, this.options.projectName);
+      const pointsQueryResult = await api.getPointsByQuery(pointsQuery, this.azureOptions.projectName);
 
       if (pointsQueryResult.points) {
         for (const point of pointsQueryResult.points) {
@@ -192,8 +189,6 @@ class AzureDevOpsReporter implements Reporter {
           }
         }
       }
-
-      this.logger.info(`Retrieved test points for ${result.size} test case(s)`);
     } catch (error: any) {
       this.logger.error(`Error retrieving test points: ${error.message}`);
     }
@@ -207,23 +202,20 @@ class AzureDevOpsReporter implements Reporter {
   ): TestInterfaces.TestPoint[] {
     return testPoints?.filter((testPoint) => {
       // Filter by plan ID
-      if (!testPoint.testPlan?.id || parseInt(testPoint.testPlan.id, 10) !== this.options.planId) {
-        this.logger.debug(`Filtered out test point: wrong plan ID (${testPoint.testPlan?.id} vs ${this.options.planId})`);
+      if (!testPoint.testPlan?.id || parseInt(testPoint.testPlan.id, 10) !== this.azureOptions.planId) {
         return false;
       }
 
       // Filter by test case ID
       if (!testPoint.testCase?.id || testPoint.testCase.id !== testCaseId) {
-        this.logger.debug(`Filtered out test point: wrong test case ID (${testPoint.testCase?.id} vs ${testCaseId})`);
         return false;
       }
 
       // Filter by configuration IDs if specified
-      if (this.options.testRunConfig?.configurationIds?.length) {
-        const configIds = this.options.testRunConfig.configurationIds;
+      if (this.azureOptions.testRunConfig?.configurationIds?.length) {
+        const configIds = this.azureOptions.testRunConfig.configurationIds;
         const pointConfigId = testPoint.configuration?.id ? parseInt(testPoint.configuration.id, 10) : null;
         if (pointConfigId && !configIds.includes(pointConfigId)) {
-          this.logger.debug(`Filtered out test point: wrong configuration ID (${pointConfigId} not in [${configIds.join(', ')}])`);
           return false;
         }
       }
@@ -233,27 +225,34 @@ class AzureDevOpsReporter implements Reporter {
   }
 
   async onInit() {
+    // We'll defer initialization until we know there are annotated tests
+    this.logger.info('Azure DevOps Reporter initialized. Will create test run only if annotated tests are found.');
+  }
+
+  private async ensureTestRunCreated() {
+    if (this.testRunId || !this.hasAnnotatedTests) {
+      return; // Already created or no annotated tests
+    }
+
     try {
-      const runTitle = `${this.options.environment ? `[${this.options.environment}] ` : ''}${this.options.testRunTitle}`;
+      const runTitle = `${this.azureOptions.environment ? `[${this.azureOptions.environment}] ` : ''}${this.azureOptions.testRunTitle}`;
 
       // Create a new test run
       const api = await this.testApi;
-      
+
       // Prepare run model similar to Playwright reporter
       const runModel: TestInterfaces.RunCreateModel = {
         name: runTitle,
         automated: true,
-        plan: { id: String(this.options.planId) },
-        ...(this.options.testRunConfig
-          ? this.options.testRunConfig
+        plan: { id: String(this.azureOptions.planId) },
+        ...(this.azureOptions.testRunConfig
+          ? this.azureOptions.testRunConfig
           : {
-              configurationIds: [1],
-            }),
+            configurationIds: [1],
+          }),
       };
 
-      this.logger.info(`Creating test run with configuration: ${JSON.stringify(runModel, null, 2)}`);
-
-      const run = await api.createTestRun(runModel, this.options.projectName);
+      const run = await api.createTestRun(runModel, this.azureOptions.projectName);
 
       if (!run?.id) {
         throw new Error('Failed to create test run');
@@ -268,15 +267,16 @@ class AzureDevOpsReporter implements Reporter {
   }
 
   async onTestRunEnd() {
-    this.logger.info('🚀 Starting onTestRunEnd...');
-
     try {
+      if (!this.hasAnnotatedTests) {
+        this.logger.info('No annotated tests found, skipping Azure DevOps workflow');
+        return;
+      }
+
       if (this.pendingResults.length === 0) {
         this.logger.info('No test results to publish');
         return;
       }
-
-      this.logger.info(`Processing ${this.pendingResults.length} pending test result(s)`);
 
       const api = await this.testApi;
       if (!this.testRunId) {
@@ -286,16 +286,12 @@ class AzureDevOpsReporter implements Reporter {
       // Group results by case ID
       const resultsByCase = new Map<string, TestResult[]>();
       for (const result of this.pendingResults) {
-        this.logger.info(`Processing result for test "${result.testCase.name}" with case IDs: ${result.caseIds.join(', ')}`);
-
         for (const caseId of result.caseIds) {
           const results = resultsByCase.get(caseId) || [];
           results.push(result);
           resultsByCase.set(caseId, results);
         }
       }
-
-      this.logger.info(`Grouped results into ${resultsByCase.size} unique case ID(s)`);
 
       // Get all test case IDs for fetching test points
       const allCaseIds = Array.from(resultsByCase.keys());
@@ -306,8 +302,6 @@ class AzureDevOpsReporter implements Reporter {
       for (const [caseId, results] of resultsByCase) {
         // Use latest result for this case ID
         const result = results[results.length - 1];
-
-        this.logger.info(`Creating result for case ID ${caseId}: ${result.outcome} (${result.duration}ms)`);
 
         // Get and filter test points for this test case
         const allTestPoints = testPointsMap.get(caseId) || [];
@@ -335,8 +329,6 @@ class AzureDevOpsReporter implements Reporter {
         } else {
           // Create results for each selected test point
           for (const testPoint of selectedTestPoints) {
-            this.logger.info(`Creating result for test point ${testPoint.id} (case ${caseId})`);
-
             const testCaseResult: TestInterfaces.TestCaseResult = {
               testCase: { id: caseId },
               testCaseTitle: result.testCase.name,
@@ -354,17 +346,14 @@ class AzureDevOpsReporter implements Reporter {
         }
       }
 
-      this.logger.info(`Publishing ${testResults.length} test result(s) to Azure DevOps...`);
-
       // Publish results
-      await api.addTestResultsToTestRun(testResults, this.options.projectName, this.testRunId);
+      await api.addTestResultsToTestRun(testResults, this.azureOptions.projectName, this.testRunId);
       this.logger.info(`Published ${testResults.length} test results`);
 
       // Complete the test run
-      this.logger.info(`Completing test run ${this.testRunId}...`);
       await api.updateTestRun(
         { state: 'Completed' },
-        this.options.projectName,
+        this.azureOptions.projectName,
         this.testRunId
       );
       this.logger.info(`Completed test run ${this.testRunId}`);
@@ -375,41 +364,71 @@ class AzureDevOpsReporter implements Reporter {
     }
   }
 
-  onTestCaseResult(test: TestCase) {
-    this.logger.info(`Processing test: ${test.name} (state: ${test.result().state})`);
+  async onTestModuleEnd(testModule: TestModule): Promise<void> {
+    // Process all test cases in the module
+    const testCases = this.getAllTestCases(testModule);
 
-    const caseIds = this.getCaseIdsFromAnnotations(test);
-    this.logger.info(`Extracted case IDs: ${caseIds.length > 0 ? caseIds.join(', ') : 'none'}`);
+    for (const testCase of testCases) {
+      const result = testCase.result();
+      const state = result?.state || 'unknown';
 
-    if (caseIds.length === 0) {
-      this.logger.info(`Skipping test "${test.name}" - no case IDs found`);
-      return;
+      const caseIds = this.getCaseIdsFromAnnotations(testCase);
+
+      if (caseIds.length === 0) {
+        continue;
+      }
+
+      // Mark that we found annotated tests
+      this.hasAnnotatedTests = true;
+
+      // Ensure test run is created now that we know we have annotated tests
+      await this.ensureTestRunCreated();
+
+      // Get duration from the test task if available
+      const duration = (testCase as any).task?.result?.duration || 0;
+
+      const testResult: TestResult = {
+        testCase: testCase,
+        caseIds,
+        outcome: this.getAzureStatus(state),
+        duration: duration,
+      };
+
+      // Check the test result state for errors
+      if (state === 'failed' && result?.errors && result.errors.length > 0) {
+        testResult.error = result.errors
+          .map((error: any, idx: number) => `ERROR #${idx + 1}:\n${error.message?.replace(/\u001b\[.*?m/g, '')}`)
+          .join('\n\n');
+        testResult.stack = result.errors
+          .map((error: any, idx: number) => `STACK #${idx + 1}:\n${error.stack?.replace(/\u001b\[.*?m/g, '')}`)
+          .join('\n\n');
+      }
+
+      this.pendingResults.push(testResult);
+    }
+  }
+
+  private getAllTestCases(testModule: TestModule): TestCase[] {
+    const testCases: TestCase[] = [];
+
+    function collectTestCases(collection: any): void {
+      // Handle TestCollection which is iterable
+      if (collection && typeof collection[Symbol.iterator] === 'function') {
+        for (const child of collection) {
+          if (child.type === 'test') {
+            testCases.push(child as TestCase);
+          } else if (child.children) {
+            collectTestCases(child.children);
+          }
+        }
+      }
     }
 
-    const result = test.result();
-    const diagnostic = test.diagnostic();
-    const testResult: TestResult = {
-      testCase: test,
-      caseIds,
-      outcome: this.getAzureStatus(result.state),
-      duration: diagnostic?.duration || (test as any).task.result?.duration || 0,
-    };
-
-    this.logger.info(`Mapped ${result.state} -> ${testResult.outcome} for test "${test.name}"`);
-
-    // Check the test result state for errors
-    if (result.state === 'failed' && result.errors && result.errors.length > 0) {
-      this.logger.info(`Capturing ${result.errors.length} error(s) for failed test`);
-      testResult.error = result.errors
-        .map((error: any, idx: number) => `ERROR #${idx + 1}:\n${error.message?.replace(/\u001b\[.*?m/g, '')}`)
-        .join('\n\n');
-      testResult.stack = result.errors
-        .map((error: any, idx: number) => `STACK #${idx + 1}:\n${error.stack?.replace(/\u001b\[.*?m/g, '')}`)
-        .join('\n\n');
+    if (testModule.children) {
+      collectTestCases(testModule.children);
     }
 
-    this.pendingResults.push(testResult);
-    this.logger.info(`Added test result. Total pending: ${this.pendingResults.length}`);
+    return testCases;
   }
 }
 

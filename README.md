@@ -1,329 +1,400 @@
-# ViTest Azure Reporter
+# Vitest Azure Reporter
 
 ![GitHub](https://img.shields.io/github/license/akshaybheda/vitest-azure-reporter/) ![npm (scoped)](https://img.shields.io/npm/v/@akshaybheda/vitest-azure-reporter/) ![npm](https://img.shields.io/npm/dw/@akshaybheda/vitest-azure-reporter/) ![npm](https://img.shields.io/npm/dt/@akshaybheda/vitest-azure-reporter/)
 
-## A must read!
+A Vitest reporter that integrates with Azure DevOps Test Plans to automatically publish test results.
 
-**Since version 1.5.0 reporter allows using configurationIds to publish results for different configurations e.g. different browsers**
-**Necessarily defining `testRun.configurationIds` or/and `testPointMapper` function in reporter config, otherwise reporter will be publishing results for all configurations**
+## Features
 
-**Since version 1.9.0 reporter allows you to use test tags as Playwright it implemented in version [1.42.0](https://playwright.dev/docs/test-annotations#tag-tests)**
-**You can define test cases ids in new format, but you still can use old format with test case id in test name**
+- 🎯 **Smart Workflow**: Only runs Azure DevOps integration if tests have case ID annotations
+- 🚀 **Modern ES Modules**: Full ES module support with Node.js 20+
+- 🔧 **Flexible Configuration**: Supports multiple configuration IDs and custom test point mapping
+- 📋 **Test Case Annotations**: Extract test case IDs from test names or annotations
+- 🔄 **Automatic Test Run Management**: Creates and completes test runs automatically
+- ⚡ **Efficient Processing**: Uses `onTestModuleEnd` for batch processing of test results
 
-**Example:**
+## Requirements
 
-```typescript
-test.describe('Test suite', () => {
-  test('Test name @tag1 @tag2', {
-    tag: ['@[1]'] // <<-- test case id
-  } () => {
-    expect(true).toBe(true);
-  });
-});
-```
+- **Node.js 20.0.0 or higher**
+- **ES Module support** (this package is published as ES modules)
+- **Vitest** as your test runner
 
-**but you should define your Azure DevOps test case id in format `@[1]` where `1` is your test case id in square brackets and `@` is required prefix for playwright to recognize tags**
+## Important Notes
 
-## How to integrate
+**Optimized Workflow**: The reporter will only create Azure DevOps test runs and publish results if your tests contain test case ID annotations. Tests without annotations will run normally but won't trigger any Azure DevOps integration, making it efficient for mixed test suites.
 
-Install package
+**Configuration Requirements**: The reporter requires defining `testRunConfig.configurationIds` or a `testPointMapper` function in the reporter config to avoid publishing results for all configurations.
+
+**Test Case ID Formats**: You can define test case IDs in test names using the format `[1234]` where `1234` is your Azure DevOps test case ID.
+
+## Installation
+
+Install the package:
 
 ```bash
-npm install @alex_neo/playwright-azure-reporter
+npm install @akshaybheda/vitest-azure-reporter
 ```
 
 or
 
 ```bash
-yarn add @alex_neo/playwright-azure-reporter
+yarn add @akshaybheda/vitest-azure-reporter
 ```
 
 ## Usage
 
-You must register an ID already existing test cases from Azure DevOps before running tests.
+### Basic Setup
 
-> **You need write testCaseId wraped in square brackets at the test name.**
+You must register an ID of already existing test cases from Azure DevOps before running tests.
 
-You can define multiple test cases for a single test with next format:
+> **You need to write testCaseId wrapped in square brackets in the test name.**
+
+### Test Case ID Formats
+
+You can define multiple test cases for a single test with the following formats:
 
 - `[1] Test name` - single test case
 - `[1,2,3] Test name` - multiple test cases
 - `[16, 17, 18] Test name` - multiple test cases with spaces
 - `[1, 2, 3] Test name [4] Test name [5][6] Test name` - with combined format
 
-For example:
+### Example Tests
 
 ```typescript
-describe('Test suite', () => {
-  test('[1] First Test', () => {
+import { describe, expect, it } from 'vitest';
+
+describe('[1698831] Sample test suite', () => {
+  it('[1] First Test', () => {
     expect(true).toBe(true);
   });
 
-  test('Correct test [3]', () => {
+  it('Correct test [3]', () => {
     expect(true).toBe(true);
   });
 
-  test.skip('Skipped test [4]', () => {
+  it.skip('Skipped test [4]', () => {
     expect(true).toBe(true);
   });
 
-  test('[6] Failed test', () => {
+  it('[6] Failed test', () => {
     expect(true).toBe(false);
   });
 
-  test('[7] Test seven [8] Test eight [9] Test nine', () => {
+  it('[7] Test seven [8] Test eight [9] Test nine', () => {
     expect(true).toBe(true);
   });
 
-  test('[10,11,12] Test ten, eleven, twelve', () => {
+  it('[10,11,12] Test ten, eleven, twelve', () => {
     expect(true).toBe(true);
   });
 
-  test('[13, 14, 15] Test thirteen, fourteen, fifteen', () => {
+  it('[13, 14, 15] Test thirteen, fourteen, fifteen', () => {
     expect(true).toBe(true);
   });
 
-  test('[16, 17, 18] Test sixteen, seventeen, eighteen [19] Test nineteen', () => {
-    expect(true).toBe(true);
-  });
-});
-```
-
-Or you can use tags to define test cases ids (since v1.9.0) (read more [here](https://playwright.dev/docs/test-annotations#tag-tests)):
-
-```typescript
-test.describe('Test suite', () => {
-  test('Test name', {
-    tag: ['@[1]', '@smoke', '@slow']
-  } () => {
+  it('[16, 17, 18] Test sixteen, seventeen, eighteen [19] Test nineteen', () => {
     expect(true).toBe(true);
   });
 });
 ```
 
-Configure Playwright Azure Reporter with `playwright-azure-reporter` package.
+### Vitest Configuration
 
-`playwright.config.ts`
+Configure the Vitest Azure Reporter in your `vitest.config.ts`:
+
+#### Method 1: Using Import Path (Recommended)
 
 ```typescript
-import type { PlaywrightTestConfig } from '@playwright/test';
-import type { AzureReporterOptions } from '@alex_neo/playwright-azure-reporter/dist/playwright-azure-reporter';
+import { defineConfig } from 'vitest/config';
 
-/**
- * See https://playwright.dev/docs/test-configuration.
- */
-const config: PlaywrightTestConfig = {
-  testDir: './tests',
-  timeout: 30 * 1000,
-  expect: {
-    timeout: 5000,
-  },
-  forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
-  workers: process.env.CI ? 1 : undefined,
-  reporter: [
-    ['list'],
-    [
-      '@alex_neo/playwright-azure-reporter',
-      {
-        orgUrl: 'https://dev.azure.com/your-organization-name',
-        token: process.env.AZURE_TOKEN,
-        planId: 44,
-        projectName: 'SampleSample',
-        environment: 'AQA',
-        logging: true,
-        testRunTitle: 'Playwright Test Run',
-        publishTestResultsMode: 'testRun',
-        uploadAttachments: true,
-        attachmentsType: ['screenshot', 'video', 'trace'],
-        testCaseIdMatcher: /@\[(\d+)\]/, // please use this pattern to extract test case id from test name, be careful with the pattern!!!
-        testRunConfig: {
-          owner: {
-            displayName: 'Alex Neo',
+export default defineConfig({
+  test: {
+    reporters: [
+      'default', // Keep the default reporter for console output
+      [
+        '@akshaybheda/vitest-azure-reporter',
+        {
+          orgUrl: process.env.AZURE_ORG_URL || 'https://dev.azure.com/your-organization',
+          projectName: process.env.AZURE_PROJECT_NAME || 'your-project',
+          planId: parseInt(process.env.AZURE_PLAN_ID || '123456'),
+          token: process.env.AZURE_TOKEN,
+          environment: process.env.AZURE_ENVIRONMENT || 'Development',
+          testRunTitle: 'Vitest Test Run - Local Development',
+          testRunConfig: {
+            comment: 'Vitest Test Run',
+            // Get configuration IDs from: https://dev.azure.com/{organization}/{project}/_apis/test/configurations
+            configurationIds: [39, 42], // Your configuration IDs
           },
-          comment: 'Playwright Test Run',
-          // the configuration ids of this test run, use
-          // https://dev.azure.com/{organization}/{project}/_apis/test/configurations to get the ids of  your project.
-          // if multiple configuration ids are used in one run a testPointMapper should be used to pick the correct one,
-          // otherwise the results are pushed to all.
-          configurationIds: [1],
+          logging: true, // Enable logging for debugging
         },
-      } as AzureReporterOptions,
+      ],
     ],
-  ],
-  use: {
-    screenshot: 'only-on-failure',
-    actionTimeout: 0,
-    trace: 'on-first-retry',
   },
-};
-
-export default config;
+});
 ```
 
-## Configuration
+#### Method 2: Using Constructor (Alternative)
+
+```typescript
+import { defineConfig } from 'vitest/config';
+import { AzureDevOpsReporter } from '@akshaybheda/vitest-azure-reporter';
+
+export default defineConfig({
+  test: {
+    reporters: [
+      'default',
+      new AzureDevOpsReporter({
+        orgUrl: process.env.AZURE_ORG_URL || 'https://dev.azure.com/your-organization',
+        projectName: process.env.AZURE_PROJECT_NAME || 'your-project',
+        planId: parseInt(process.env.AZURE_PLAN_ID || '123456'),
+        token: process.env.AZURE_TOKEN,
+        environment: process.env.AZURE_ENVIRONMENT || 'Development',
+        testRunTitle: 'Vitest Test Run',
+        testRunConfig: {
+          comment: 'Vitest Test Run',
+          configurationIds: [39, 42],
+        },
+        logging: true,
+      }),
+    ],
+  },
+});
+```
+
+## Configuration Options
 
 Reporter options (\* - required):
 
-- \*`token` [string] - Azure DevOps token, you can find more information [here](https://docs.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows)
-- \*`orgUrl` [string] - Full url for your organization space. Example: `https://dev.azure.com/your-organization-name`
+### Required Options
 
-  > **Note:** some API's (e.g. ProfileApi) can't be hit at the org level, and has to be hit at the deployment level, so url should be structured like https://vssps.dev.azure.com/{yourorgname}
+- \*`token` [string] - Azure DevOps Personal Access Token. You can find more information [here](https://docs.microsoft.com/en-us/azure/devops/organizations/accounts/use-personal-access-tokens-to-authenticate?view=azure-devops&tabs=Windows)
+- \*`orgUrl` [string] - Full URL for your organization space. Example: `https://dev.azure.com/your-organization-name`
 
-- \*`projectName` [string] - Name of your project (also can be got from run URL). Example: `https://dev.azure.com/alex-neo/SampleProject/` - **SampleProject**
-- \*`planId` [number] - Id of test plan. You can find it in test plan URL. Example: `https://dev.azure.com/alex-neo/SampleProject/_testPlans/execute?planId=4&suiteId=6` - **planId=4**
-- `environment` [any] - Any string that will be used as environment name. Will be used as prefix for all test runs. Default: `undefined`. Example: `QA`
-- `logging` [boolean] - Enabled debug logging from reporter or not. Default: `false`.
-- `uploadAttachments` [boolean] - Uploading attachments (screenshot/video) after test ended. Default: `false`.
-- `attachmentsType` [(string|RegExp)[]] - List of attachments types or a RegEx to match the name of the attachment that will be uploaded. Default: `['screenshot']`
-- `uploadLogs` [boolean] - Uploading logs that were created during test execution like stdout/stderr. Doesn't depend on `uploadAttachments` option. Default: `false`.
-- `isDisabled` [boolean] - Disable reporter. Default: `false`.
-- `testRunTitle` [string] - Title of test run using to create new test run. Default: `Playwright Test Run`.
-- `testRunConfig` - Extra data to pass when Test Run creating. Read [doc](https://learn.microsoft.com/en-us/rest/api/azure/devops/test/runs/create?view=azure-devops-rest-7.1&tabs=HTTP#request-body) from more information. Default: `empty`.
-- `testPointMapper` [function] - A callback to map the test runs to test configurations, e.g. by browser
+  > **Note:** Some APIs (e.g. ProfileApi) can't be hit at the org level and need to be hit at the deployment level, so URL should be structured like `https://vssps.dev.azure.com/{yourorgname}`
 
-```
-  import { TestCase } from '@playwright/test/reporter'
-  import { TestPoint } from 'azure-devops-node-api/interfaces/TestInterfaces'
+- \*`projectName` [string] - Name of your project (can be found in the Azure DevOps URL). Example: `https://dev.azure.com/alex-neo/SampleProject/` - **SampleProject**
+- \*`planId` [number] - ID of test plan. You can find it in the test plan URL. Example: `https://dev.azure.com/alex-neo/SampleProject/_testPlans/execute?planId=4&suiteId=6` - **planId=4**
 
-  testPointMapper: async (testCase: TestCase, testPoints: TestPoint[]) => {
-    switch(testCase.parent.project()?.use.browserName) {
-      case 'chromium':
-        return testPoints.filter((testPoint) => testPoint.configuration.id === '3');
-      case 'firefox':
-        return testPoints.filter((testPoint) => testPoint.configuration.id === '4');
-      case 'webkit':
-        return testPoints.filter((testPoint) => testPoint.configuration.id === '5');
-      default:
-        throw new Error("invalid test configuration!");
-    }
+### Optional Configuration
+
+- `environment` [string] - Environment name that will be used as prefix for all test runs. Default: `undefined`. Example: `'Development'`, `'QA'`, `'Production'`
+- `logging` [boolean] - Enable debug logging from reporter. Default: `false`
+- `isDisabled` [boolean] - Disable reporter entirely. Default: `false`
+- `testRunTitle` [string] - Title of test run used to create new test run. Default: `'Vitest Test Run'`
+- `testRunConfig` [object] - Extra data to pass when creating Test Run. See [Azure DevOps REST API documentation](https://learn.microsoft.com/en-us/rest/api/azure/devops/test/runs/create?view=azure-devops-rest-7.1&tabs=HTTP#request-body) for more information. Default: `{}`
+
+  Example:
+
+  ```typescript
+  testRunConfig: {
+    owner: {
+      displayName: 'John Doe',
+    },
+    comment: 'Automated test run from CI/CD pipeline',
+    configurationIds: [39, 42], // Configuration IDs for your test environment
   }
-```
+  ```
 
-- `publishTestResultsMode` - Mode of publishing test results. Default: `'testResult'`. Available options:
-  - `testResult` - Published results of tests, at the end of each test, parallel to test run..
-  - `testRun` - Published test results to test run, at the end of test run.
-    > **Note:** If you use `testRun` mode and using same test cases in different tests (yes i know it sounds funny), it will be overwritten with last test result.
-- `isExistingTestRun` [boolean] - Published test results to the existing test run. In this mode test results only added to the existing test run without its creation and completion. Default: `false`.
-  > **Note:** If you use `isExistingTestRun` mode, `testRunId` should be specified.
-- `testRunId` [number] - Id of test run. Used only for `existingTestRun` publishing mode. Also can be set by `AZURE_PW_TEST_RUN_ID` environment variable. Default: `undefined`.
+- `testPointMapper` [function] - A callback to map test runs to test configurations (e.g., by environment, browser, etc.)
 
-  > **Note:** If you set existing test run ID from reporter options and from environment variable - reporter options will be used
+  ```typescript
+  import type { TestModule } from 'vitest';
+  import type { TestPoint } from 'azure-devops-node-api/interfaces/TestInterfaces';
 
-  > **Note:** If you use `isExistingTestRun` mode, test run doesn't complete automatically. You should complete it manually.
+  testPointMapper: async (testModule: TestModule, testPoints: TestPoint[]) => {
+    // Example: Map based on environment variable
+    const environment = process.env.TEST_ENVIRONMENT;
+    switch (environment) {
+      case 'staging':
+        return testPoints.filter((testPoint) => testPoint.configuration.id === '39');
+      case 'production':
+        return testPoints.filter((testPoint) => testPoint.configuration.id === '42');
+      default:
+        return testPoints.filter((testPoint) => testPoint.configuration.id === '39');
+    }
+  };
+  ```
 
-- `testCaseIdMatcher` [string|RegExp|string[]|RegExp[]] - A string or a regular expression to match the name of the test case to extract the test case id. Default: `/\[([\d,\s]+)\]/`
+- `testCaseIdMatcher` [string|RegExp|string[]|RegExp[]] - Pattern(s) to extract test case IDs from test names. Default: `/\[([\d,\s]+)\]/`
 
-  #### Example Test Titles
+  #### Examples
 
   - Test title: `Test case @tag1=123`
 
     - `testCaseIdMatcher: /@tag1=(\d+)/`
-    - Extracted tags: `['123']`
+    - Extracted IDs: `['123']`
 
   - Test title: `Test case @TestCase=123 [@TestCase=456]`
 
     - `testCaseIdMatcher: /@TestCase=(\d+)/`
-    - Extracted tags: `['123', '456']`
+    - Extracted IDs: `['123', '456']`
 
   - Test title: `Test case test123 TEST456`
+
     - `testCaseIdMatcher: [/[a-z]+(\d+)/, /[A-Z]+(\d+)/]`
-    - Extracted tags: `['123', '456']`
+    - Extracted IDs: `['123', '456']`
+
   - Test title: `Test case @tag1=123 @tag2=456`
     - `testCaseIdMatcher: ['@tag1=(\\d+)', '@tag2=(\\d+)']`
-    - Extracted tags: `['123', '456']`
+    - Extracted IDs: `['123', '456']`
 
-  #### Error Handling
+### Advanced Options
 
-  If an invalid `testCaseIdMatcher` is provided, an error will be thrown. For example:
+- `publishTestResultsMode` [string] - Mode of publishing test results. Default: `'testRun'`. Available options:
 
-  ```typescript
-   reporter: [
-    ['list'],
-    [
-      '@alex_neo/playwright-azure-reporter',
-      {
-        orgUrl: 'http://localhost:4000',
-        projectName: 'SampleProject',
-        planId: 4,
-        token: 'your-token',
-        isDisabled: false,
-        testCaseIdMatcher: 1234, // Invalid pattern
-      }
+  - `'testResult'` - Publish results of tests at the end of each test, parallel to test run
+  - `'testRun'` - Publish test results to test run at the end of test run (recommended)
+
+    > **Note:** If you use `testRun` mode and have the same test cases in different tests, results will be overwritten with the last test result.
+
+- `isExistingTestRun` [boolean] - Publish test results to an existing test run. In this mode, test results are only added to the existing test run without creation and completion. Default: `false`
+
+  > **Note:** If you use `isExistingTestRun` mode, `testRunId` should be specified.
+
+- `testRunId` [number] - ID of existing test run. Used only for `isExistingTestRun` mode. Can also be set by `AZURE_VITEST_TEST_RUN_ID` environment variable. Default: `undefined`
+
+  > **Note:** If you set existing test run ID from both reporter options and environment variable, reporter options will take precedence.
+
+  > **Note:** If you use `isExistingTestRun` mode, the test run doesn't complete automatically. You should complete it manually.
+
+## Environment Variables
+
+### Available Environment Variables
+
+- **`AZURE_VITEST_TEST_RUN_ID`** - ID of current test run. Set automatically after test run creation. Can be accessed via `process.env.AZURE_VITEST_TEST_RUN_ID`
+
+  > **Note:** This variable is available in your CI/CD pipeline and can be used for further automation or reporting.
+
+  Example usage in Azure DevOps pipeline:
+
+  ```yaml
+  - script: npm test
+    displayName: 'Run Vitest tests'
+    name: 'vitest'
+    env:
+      CI: 'true'
+
+  - script: echo $(vitest.AZURE_VITEST_TEST_RUN_ID)
+    displayName: 'Print test run ID'
+  ```
+
+- **`AZURE_VITEST_DEBUG`** - Enable debug logging from reporter. Values: `'0'` (disabled), `'1'` (enabled). Default: `'0'`
+
+  Example usage in Azure DevOps pipeline:
+
+  ```yaml
+  - script: npm test
+    displayName: 'Run Vitest tests'
+    name: 'vitest'
+    env:
+      CI: 'true'
+      AZURE_VITEST_DEBUG: '1'
+  ```
+
+## Examples
+
+### CI/CD Pipeline Example
+
+```yaml
+# Azure DevOps Pipeline
+- task: NodeTool@0
+  displayName: 'Use Node.js 20'
+  inputs:
+    versionSpec: '20.x'
+
+- script: npm ci
+  displayName: 'Install dependencies'
+
+- script: npm test
+  displayName: 'Run tests with Azure DevOps integration'
+  env:
+    AZURE_TOKEN: $(AZURE_TOKEN)
+    AZURE_ORG_URL: 'https://dev.azure.com/your-organization'
+    AZURE_PROJECT_NAME: 'your-project'
+    AZURE_PLAN_ID: '123456'
+    AZURE_ENVIRONMENT: 'CI'
+    CI: 'true'
+```
+
+### Local Development Setup
+
+Create a `.env` file in your project root:
+
+```bash
+AZURE_TOKEN=your-personal-access-token
+AZURE_ORG_URL=https://dev.azure.com/your-organization
+AZURE_PROJECT_NAME=your-project
+AZURE_PLAN_ID=123456
+AZURE_ENVIRONMENT=Development
+```
+
+Then use in your `vitest.config.ts`:
+
+```typescript
+import { defineConfig } from 'vitest/config';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+export default defineConfig({
+  test: {
+    reporters: [
+      'default',
+      [
+        '@akshaybheda/vitest-azure-reporter',
+        {
+          orgUrl: process.env.AZURE_ORG_URL,
+          projectName: process.env.AZURE_PROJECT_NAME,
+          planId: parseInt(process.env.AZURE_PLAN_ID || '0'),
+          token: process.env.AZURE_TOKEN,
+          environment: process.env.AZURE_ENVIRONMENT,
+          testRunTitle: `Vitest Test Run - ${process.env.AZURE_ENVIRONMENT}`,
+          testRunConfig: {
+            comment: `Test run from ${process.env.USER || 'Unknown User'}`,
+            configurationIds: [39], // Your default configuration
+          },
+          logging: process.env.NODE_ENV === 'development',
+        },
+      ],
     ],
-  // This will throw an error: "Invalid testCaseIdMatcher. Must be a string or RegExp. Actual: 1234"
-  ```
+  },
+});
+```
 
-- `testCaseIdZone` [string] - Specifies where to look for the test case IDs. It can be either `'title'` or `'annotation'`. When set to `'title'`, the reporter will extract test case IDs from the test title and tag test section also. When set to `'annotation'`, it will extract test case IDs only from the test annotations. Default: `'title'`.
+## Troubleshooting
 
-  **Pay attention that if you use `testCaseIdZone: 'annotation'` and `testCaseIdMatcher` is not defined, the reporter will not extract test case IDs from the test annotations. You should define `testCaseIdMatcher` to extract test case IDs from the test annotations. Matcher should match the annotation type not the annotation description!**
+### Common Issues
 
-  #### Example Usage
+1. **No test results published**
 
-  - Test title: `Test case [12345]`
+   - Ensure your tests have test case IDs in the format `[1234]`
+   - Check that `configurationIds` are correctly set in `testRunConfig`
+   - Verify your Azure DevOps token has sufficient permissions
 
-    - `testCaseIdZone: 'title'`
-    - Extracted tags: `['12345']`
+2. **Authentication errors**
 
-  - Test annotations:
-    ```typescript
-    test('Test case', { annotations: [{ type: 'TestCase', description: '12345' }] }, () => {
-      expect(true).toBe(true);
-    });
-    ```
-    - `testCaseIdZone: 'annotation'`
-    - `testCaseIdMatcher: /(TestCase)/`
-    - Extracted tags: `['12345']`]
+   - Verify your Azure DevOps Personal Access Token is valid
+   - Ensure the token has "Test Plans (read & write)" permissions
+   - Check that `orgUrl` and `projectName` are correct
 
-- `rootSuiteId` [number] - The ID of the root test suite under which the test results will be published. This can be useful when you have some test suites for different test packages, like `smoke`, `integration`, `e2e`, etc., with the same test cases. In this case, you can specify the root suite ID to publish test results under the root suite. Also can be defined by the `AZURE_PW_ROOT_SUITE_ID` environment variable. Default: `undefined`.
+3. **Test case IDs not recognized**
+   - Verify test case IDs exist in your Azure DevOps Test Plan
+   - Check that the `testCaseIdMatcher` pattern matches your test naming convention
+   - Ensure test case IDs are wrapped in square brackets `[1234]`
 
-  > **Note:** If you set root suite ID from reporter options and from environment variable - reporter options will be used
+### Debug Mode
 
-  > **Example:**
-  > Let's say you have the following test suites/cases structure
-  >
-  > ```
-  > Automation Tests
-  >   - Smoke Tests (suiteId: 5)
-  >     - Test 1 (caseId: 1)
-  >     - Test 2 (caseId: 2)
-  >   - Integration Tests (suiteId: 6)
-  >     - Test 1 (caseId: 1)
-  >     - Test 2 (caseId: 2)
-  >     - Test 3 (caseId: 3)
-  >     - Test 4 (caseId: 4)
-  > ```
-  >
-  > And when you run tests with the `Smoke Tests` project without specifying the `rootSuiteId`, the test results will be published under the root suite `Automation Tests` for test cases in the `Smoke Tests` suite and `Integration Tests` suite. It will look like you have redundant results inside the test run for the same test cases in different suites. To avoid this, you can specify the `rootSuiteId: 5` to publish test results only under the `Smoke Tests` suite.
+Enable debug logging to troubleshoot issues:
 
-## Usefulness
+```typescript
+{
+  // ... other options
+  logging: true,
+}
+```
 
-- **AZURE_PW_TEST_RUN_ID** - Id of current test run. It will be set in environment variables after test run created. Can be accessed by `process.env.AZURE_PW_TEST_RUN_ID`. Pay attention what `publishTestResultsMode` configuration you use. If you use `testResult` mode - this variable will be set when test run created, at the start of tests execution, if you use `testRun` mode - this variable will be set when test run completed, at the end of tests execution.
+Or set the environment variable:
 
-  > **Since version 1.10.0 you have access to `AZURE_PW_TEST_RUN_ID` environment variable in your ADO pipeline. You can get it from the Task Variables.**
-
-  Example of usage in Azure DevOps pipeline:
-
-  ```yaml
-  - script: npx playwright test
-    displayName: 'Run Playwright tests'
-    name: 'playwright'
-    env:
-      CI: 'true'
-
-  - script: echo $(playwright.AZURE_PW_TEST_RUN_ID)
-    displayName: 'Print test run id'
-  ```
-
-- **AZUREPWDEBUG** - Enable debug logging from reporter `0` - disabled, `1` - enabled. Default: `0`.
-
-  Example of usage in Azure DevOps pipeline:
-
-  ```yaml
-  - script: npx playwright test
-    displayName: 'Run Playwright tests'
-    name: 'playwright'
-    env:
-      CI: 'true'
-      AZUREPWDEBUG: '1'
-  ```
+```bash
+AZURE_VITEST_DEBUG=1 npm test
+```
