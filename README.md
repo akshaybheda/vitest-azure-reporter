@@ -427,3 +427,9 @@ Or set the environment variable:
 ```bash
 AZURE_VITEST_DEBUG=1 npm test
 ```
+
+## Credits
+
+This project is forked from and heavily inspired by [playwright-azure-reporter](https://github.com/alexneo2003/playwright-azure-reporter) by alexneo2003. The original repository provided an excellent foundation for Azure DevOps integration with test frameworks. This fork has been adapted and migrated to support Vitest instead of Playwright, with additional features and optimizations for the Vitest ecosystem.
+
+Special thanks to the original author @alexneo2003 for creating the solid architecture that made this Vitest adaptation possible.
