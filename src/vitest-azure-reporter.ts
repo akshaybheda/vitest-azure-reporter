@@ -15,6 +15,7 @@ export interface AzureReporterOptions {
   testRunTitle?: string;
   testRunConfig?: Omit<TestInterfaces.RunCreateModel, 'name' | 'automated' | 'plan' | 'pointIds'>;
   logging?: boolean;
+  isDisabled?: boolean;
   testPointMapper?: (
     // eslint-disable-next-line no-unused-vars
     testCase: TestCase,
@@ -34,8 +35,8 @@ interface TestResult {
 
 class AzureDevOpsReporter implements Reporter {
   private readonly logger: Logger;
-  private testApi: Promise<Test.ITestApi>;
-  private readonly azureConnection: WebApi;
+  private testApi!: Promise<Test.ITestApi>;
+  private readonly azureConnection!: WebApi;
   private readonly azureOptions: Required<AzureReporterOptions>;
   private readonly pendingResults: TestResult[] = [];
   private testRunId?: number;
@@ -67,11 +68,18 @@ class AzureDevOpsReporter implements Reporter {
       testRunTitle: 'Vitest Test Run',
       logging: false,
       testPointMapper: defaultTestPointMapper,
+      isDisabled: false,
       ...options
     } as Required<AzureReporterOptions>;
 
     this.testPointMapper = options.testPointMapper || defaultTestPointMapper;
     this.logger = new Logger(this.azureOptions.logging);
+
+    // Skip validation and Azure connection if disabled
+    if (this.azureOptions.isDisabled) {
+      this.logger.info('Azure DevOps Reporter is disabled. Skipping validation and connection setup.');
+      return;
+    }
 
     // Validate required configuration options
     this.validateConfig();
@@ -225,11 +233,19 @@ class AzureDevOpsReporter implements Reporter {
   }
 
   async onInit() {
+    if (this.azureOptions.isDisabled) {
+      this.logger.info('Azure DevOps Reporter is disabled. No Azure DevOps integration will be performed.');
+      return;
+    }
     // We'll defer initialization until we know there are annotated tests
     this.logger.info('Azure DevOps Reporter initialized. Will create test run only if annotated tests are found.');
   }
 
   private async ensureTestRunCreated() {
+    if (this.azureOptions.isDisabled) {
+      return; // Skip if disabled
+    }
+
     if (this.testRunId || !this.hasAnnotatedTests) {
       return; // Already created or no annotated tests
     }
@@ -267,6 +283,11 @@ class AzureDevOpsReporter implements Reporter {
   }
 
   async onTestRunEnd() {
+    if (this.azureOptions.isDisabled) {
+      this.logger.info('Azure DevOps Reporter is disabled. Skipping test result publishing.');
+      return;
+    }
+
     try {
       if (!this.hasAnnotatedTests) {
         this.logger.info('No annotated tests found, skipping Azure DevOps workflow');
@@ -365,6 +386,10 @@ class AzureDevOpsReporter implements Reporter {
   }
 
   async onTestModuleEnd(testModule: TestModule): Promise<void> {
+    if (this.azureOptions.isDisabled) {
+      return; // Skip processing if disabled
+    }
+
     // Process all test cases in the module
     const testCases = this.getAllTestCases(testModule);
 
