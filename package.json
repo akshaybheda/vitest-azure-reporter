@@ -1,6 +1,6 @@
 {
   "name": "@akshaybheda/vitest-azure-reporter",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Vitest Azure Reporter",
   "type": "module",
   "main": "./dist/vitest-azure-reporter.js",
@@ -24,7 +24,6 @@
     "clean": "rm -rf dist || true",
     "prepublishOnly": "tsc",
     "dev": "yarn run lint && tsc",
-    "dev:watch": "nodemon",
     "version": "conventional-changelog -p angular -i CHANGELOG.md -s && git add CHANGELOG.md",
     "release": "conventional-github-releaser -p angular",
     "prepare": "husky install"
