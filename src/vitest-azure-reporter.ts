@@ -235,10 +235,54 @@ class AzureDevOpsReporter implements Reporter {
     this.testRunId = run.id;
   }
 
-  async onTestRunEnd() {
+  async onTestRunEnd(testModules: ReadonlyArray<TestModule>) {
     if (this.azureOptions.isDisabled) {
       this.logger.info('Azure DevOps Reporter is disabled. Skipping test result publishing.');
       return;
+    }
+
+    // Process all test cases from all modules
+    for (const testModule of testModules) {
+      const testCases = this.getAllTestCases(testModule);
+
+      for (const testCase of testCases) {
+        const result = testCase.result();
+        const state = result?.state || 'unknown';
+
+        const caseIds = this.getCaseIdsFromAnnotations(testCase);
+
+        if (caseIds.length === 0) {
+          continue;
+        }
+
+        // Mark that we found annotated tests
+        this.hasAnnotatedTests = true;
+
+        // Ensure test run is created now that we know we have annotated tests
+        await this.ensureTestRunCreated();
+
+        // Get duration from the test task if available
+        const duration = (testCase as any).task?.result?.duration || 0;
+
+        const testResult: TestResult = {
+          testCase: testCase,
+          caseIds,
+          outcome: this.getAzureStatus(state),
+          duration: duration,
+        };
+
+        // Check the test result state for errors
+        if (state === 'failed' && result?.errors && result.errors.length > 0) {
+          testResult.error = result.errors
+            .map((error: any, idx: number) => `ERROR #${idx + 1}:\n${error.message?.replace(/\u001b\[.*?m/g, '')}`)
+            .join('\n\n');
+          testResult.stack = result.errors
+            .map((error: any, idx: number) => `STACK #${idx + 1}:\n${error.stack?.replace(/\u001b\[.*?m/g, '')}`)
+            .join('\n\n');
+        }
+
+        this.pendingResults.push(testResult);
+      }
     }
 
     if (!this.hasAnnotatedTests) {
@@ -357,51 +401,7 @@ class AzureDevOpsReporter implements Reporter {
   }
 
   async onTestModuleEnd(testModule: TestModule): Promise<void> {
-    if (this.azureOptions.isDisabled) {
-      return; // Skip processing if disabled
-    }
-
-    // Process all test cases in the module
-    const testCases = this.getAllTestCases(testModule);
-
-    for (const testCase of testCases) {
-      const result = testCase.result();
-      const state = result?.state || 'unknown';
-
-      const caseIds = this.getCaseIdsFromAnnotations(testCase);
-
-      if (caseIds.length === 0) {
-        continue;
-      }
-
-      // Mark that we found annotated tests
-      this.hasAnnotatedTests = true;
-
-      // Ensure test run is created now that we know we have annotated tests
-      await this.ensureTestRunCreated();
-
-      // Get duration from the test task if available
-      const duration = (testCase as any).task?.result?.duration || 0;
-
-      const testResult: TestResult = {
-        testCase: testCase,
-        caseIds,
-        outcome: this.getAzureStatus(state),
-        duration: duration,
-      };
-
-      // Check the test result state for errors
-      if (state === 'failed' && result?.errors && result.errors.length > 0) {
-        testResult.error = result.errors
-          .map((error: any, idx: number) => `ERROR #${idx + 1}:\n${error.message?.replace(/\u001b\[.*?m/g, '')}`)
-          .join('\n\n');
-        testResult.stack = result.errors
-          .map((error: any, idx: number) => `STACK #${idx + 1}:\n${error.stack?.replace(/\u001b\[.*?m/g, '')}`)
-          .join('\n\n');
-      }
-
-      this.pendingResults.push(testResult);
-    }
+    // This method is no longer needed as we process all modules in onTestRunEnd
   }
 
   private getAllTestCases(testModule: TestModule): TestCase[] {
