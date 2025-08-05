@@ -1,8 +1,7 @@
-import { WebApi } from 'azure-devops-node-api';
-import * as azdev from 'azure-devops-node-api';
-import type { IRequestOptions } from 'azure-devops-node-api/interfaces/common/VsoBaseInterfaces';
-import type * as TestInterfaces from 'azure-devops-node-api/interfaces/TestInterfaces';
-import type * as Test from 'azure-devops-node-api/TestApi';
+import { WebApi, getPersonalAccessTokenHandler } from 'azure-devops-node-api/WebApi.js';
+import type { IRequestOptions } from 'azure-devops-node-api/interfaces/common/VsoBaseInterfaces.js';
+import type * as TestInterfaces from 'azure-devops-node-api/interfaces/TestInterfaces.js';
+import type * as Test from 'azure-devops-node-api/TestApi.js';
 import type { Reporter, TestCase, TestCollection, TestModule } from 'vitest/node';
 import Logger from './logger.js';
 
@@ -85,9 +84,9 @@ class AzureDevOpsReporter implements Reporter {
     this.validateConfig();
 
     // Initialize Azure DevOps connection
-    this.azureConnection = new azdev.WebApi(
+    this.azureConnection = new WebApi(
       this.azureOptions.orgUrl,
-      azdev.getPersonalAccessTokenHandler(this.azureOptions.token),
+      getPersonalAccessTokenHandler(this.azureOptions.token),
       {
         allowRetries: true,
         maxRetries: 5
@@ -126,79 +125,42 @@ class AzureDevOpsReporter implements Reporter {
     }
   }
 
-  private getCaseIdsFromAnnotations(testCase: TestCase): string[] {
-    const caseIds: string[] = [];
-
-    // Get annotations from the test case (includes await annotate() calls)
-    const annotations = testCase.annotations() || [];
-
-    if (Array.isArray(annotations)) {
-      annotations.forEach((annotation: any) => {
-        if (annotation.message) {
-          // Regex to match [123] or [123,456,789] patterns
-          const idRegex = /\[([0-9,\s]+)\]/g;
-          let match;
-          while ((match = idRegex.exec(annotation.message)) !== null) {
-            const ids = match[1].split(',').map(id => id.trim()).filter(id => id.length > 0);
-            caseIds.push(...ids);
-          }
-        }
-      });
+  async onEnd(): Promise<void> {
+    try {
+      if (this.azureConnection && typeof (this.azureConnection as any).dispose === 'function') {
+        (this.azureConnection as any).dispose();
+      }
+    } catch (error: any) {
+      this.logger.warn(`Error disposing Azure connection: ${error.message}`);
     }
-
-    // Also check the test name directly for case IDs
-    const testNameRegex = /\[([0-9,\s]+)\]/g;
-    let nameMatch;
-    while ((nameMatch = testNameRegex.exec(testCase.name)) !== null) {
-      const ids = nameMatch[1].split(',').map(id => id.trim()).filter(id => id.length > 0);
-      caseIds.push(...ids);
-    }
-
-    const uniqueIds = [...new Set(caseIds)];
-    return uniqueIds;
   }
 
-  private getAzureStatus(state: string): string {
-    switch (state) {
-      case 'passed':
-        return 'Passed';
-      case 'failed':
-        return 'Failed';
-      case 'skipped':
-        return 'NotApplicable';
-      case 'pending':
-        return 'Paused';
-      case 'unknown':
-      default:
-        return 'Passed'; // Default to passed if we can't determine the state
-    }
+  // Additional cleanup method that Vitest might call
+  async close(): Promise<void> {
+    await this.onEnd();
   }
 
   private async getTestPointsForTestCases(testCases: string[]): Promise<Map<string, TestInterfaces.TestPoint[]>> {
     const result = new Map<string, TestInterfaces.TestPoint[]>();
 
-    try {
-      const testcaseIds = testCases.map(id => parseInt(id, 10));
-      const pointsQuery: TestInterfaces.TestPointsQuery = {
-        pointsFilter: { testcaseIds: testcaseIds },
-      };
+    const testcaseIds = testCases.map(id => parseInt(id, 10));
+    const pointsQuery: TestInterfaces.TestPointsQuery = {
+      pointsFilter: { testcaseIds: testcaseIds },
+    };
 
-      const api = await this.testApi;
-      const pointsQueryResult = await api.getPointsByQuery(pointsQuery, this.azureOptions.projectName);
+    const api = await this.testApi;
+    const points = await api.getPointsByQuery(pointsQuery, this.azureOptions.projectName);
 
-      if (pointsQueryResult.points) {
-        for (const point of pointsQueryResult.points) {
-          if (point.testCase?.id) {
-            const testCaseId = point.testCase.id;
-            if (!result.has(testCaseId)) {
-              result.set(testCaseId, []);
-            }
-            result.get(testCaseId)!.push(point);
+    if (points?.points) {
+      for (const point of points.points) {
+        if (point.testCase?.id) {
+          const testCaseId = point.testCase.id;
+          if (!result.has(testCaseId)) {
+            result.set(testCaseId, []);
           }
+          result.get(testCaseId)!.push(point);
         }
       }
-    } catch (error: any) {
-      this.logger.error(`Error retrieving test points: ${error.message}`);
     }
 
     return result;
@@ -250,36 +212,27 @@ class AzureDevOpsReporter implements Reporter {
       return; // Already created or no annotated tests
     }
 
-    try {
-      const runTitle = `${this.azureOptions.environment ? `[${this.azureOptions.environment}] ` : ''}${this.azureOptions.testRunTitle}`;
+    const runTitle = `${this.azureOptions.environment ? `[${this.azureOptions.environment}] ` : ''}${this.azureOptions.testRunTitle}`;
+    const api = await this.testApi;
+    const runModel: TestInterfaces.RunCreateModel = {
+      name: runTitle,
+      automated: true,
+      plan: { id: String(this.azureOptions.planId) },
+      ...(this.azureOptions.testRunConfig
+        ? this.azureOptions.testRunConfig
+        : {
+          configurationIds: [1],
+        }),
+    };
 
-      // Create a new test run
-      const api = await this.testApi;
+    const run = await api.createTestRun(runModel, this.azureOptions.projectName);
 
-      // Prepare run model similar to Playwright reporter
-      const runModel: TestInterfaces.RunCreateModel = {
-        name: runTitle,
-        automated: true,
-        plan: { id: String(this.azureOptions.planId) },
-        ...(this.azureOptions.testRunConfig
-          ? this.azureOptions.testRunConfig
-          : {
-            configurationIds: [1],
-          }),
-      };
-
-      const run = await api.createTestRun(runModel, this.azureOptions.projectName);
-
-      if (!run?.id) {
-        throw new Error('Failed to create test run');
-      }
-
-      this.testRunId = run.id;
-      this.logger.info(`Created test run ${run.id}`);
-    } catch (error: any) {
-      this.logger.error(`Error creating test run: ${error.message}`);
-      throw error;
+    if (!run?.id) {
+      throw new Error('Failed to create test run');
     }
+
+    this.logger.info(`Created test run ${run.id}`);
+    this.testRunId = run.id;
   }
 
   async onTestRunEnd() {
@@ -288,101 +241,119 @@ class AzureDevOpsReporter implements Reporter {
       return;
     }
 
-    try {
-      if (!this.hasAnnotatedTests) {
-        this.logger.info('No annotated tests found, skipping Azure DevOps workflow');
-        return;
+    if (!this.hasAnnotatedTests) {
+      this.logger.info('No annotated tests found, skipping Azure DevOps workflow');
+      return;
+    }
+
+    if (this.pendingResults.length === 0) {
+      this.logger.info('No test results to publish');
+      return;
+    }
+
+    if (!this.testRunId) {
+      this.logger.warn('No test run ID available, skipping result publishing');
+      return;
+    }
+
+    const api = await this.testApi;
+
+    // Group results by case ID
+    const resultsByCase = new Map<string, TestResult[]>();
+    for (const result of this.pendingResults) {
+      for (const caseId of result.caseIds) {
+        const results = resultsByCase.get(caseId) || [];
+        results.push(result);
+        resultsByCase.set(caseId, results);
       }
+    }
 
-      if (this.pendingResults.length === 0) {
-        this.logger.info('No test results to publish');
-        return;
-      }
+    // Get all test case IDs for fetching test points
+    const allCaseIds = Array.from(resultsByCase.keys());
+    const testPointsMap = await this.getTestPointsForTestCases(allCaseIds);
 
-      const api = await this.testApi;
-      if (!this.testRunId) {
-        throw new Error('No test run ID available');
-      }
+    // Create test results
+    const testResults: TestInterfaces.TestCaseResult[] = [];
+    for (const [caseId, results] of resultsByCase) {
+      // Use latest result for this case ID
+      const result = results[results.length - 1];
 
-      // Group results by case ID
-      const resultsByCase = new Map<string, TestResult[]>();
-      for (const result of this.pendingResults) {
-        for (const caseId of result.caseIds) {
-          const results = resultsByCase.get(caseId) || [];
-          results.push(result);
-          resultsByCase.set(caseId, results);
-        }
-      }
+      // Get and filter test points for this test case
+      const allTestPoints = testPointsMap.get(caseId) || [];
+      const filteredTestPoints = this.filterTestPoints(allTestPoints, caseId);
 
-      // Get all test case IDs for fetching test points
-      const allCaseIds = Array.from(resultsByCase.keys());
-      const testPointsMap = await this.getTestPointsForTestCases(allCaseIds);
+      // Use test point mapper to resolve which test points to use
+      const selectedTestPoints = await this.testPointMapper(result.testCase, filteredTestPoints);
 
-      // Create test results
-      const testResults: TestInterfaces.TestCaseResult[] = [];
-      for (const [caseId, results] of resultsByCase) {
-        // Use latest result for this case ID
-        const result = results[results.length - 1];
+      if (!selectedTestPoints || selectedTestPoints.length === 0) {
+        this.logger.warn(`No test points found for test case ${caseId}. Creating result without test point.`);
 
-        // Get and filter test points for this test case
-        const allTestPoints = testPointsMap.get(caseId) || [];
-        const filteredTestPoints = this.filterTestPoints(allTestPoints, caseId);
+        // Build full test name including describe context
+        const fullTestName = result.testCase.name;
 
-        // Use test point mapper to resolve which test points to use
-        const selectedTestPoints = await this.testPointMapper(result.testCase, filteredTestPoints);
+        // Create result without test point (for unplanned tests)
+        const testCaseResult: TestInterfaces.TestCaseResult = {
+          testCase: { id: caseId },
+          testCaseTitle: fullTestName,
+          testCaseRevision: 1,
+          outcome: result.outcome,
+          state: 'Completed',
+          durationInMs: result.duration,
+          errorMessage: result.error,
+          stackTrace: result.stack,
+          // Add automated test information for better identification
+          automatedTestName: fullTestName,
+          automatedTestType: 'Vitest',
+          automatedTestStorage: (result.testCase as any).file?.filepath || 'vitest',
+          runBy: {
+            displayName: 'Vitest Reporter',
+          }
+        };
 
-        if (!selectedTestPoints || selectedTestPoints.length === 0) {
-          this.logger.warn(`No test points found for test case ${caseId}. Creating result without test point.`);
+        testResults.push(testCaseResult);
+      } else {
+        // Create results for each selected test point
+        for (const testPoint of selectedTestPoints) {
+          // Build full test name including describe context
+          const fullTestName = result.testCase.name;
 
-          // Create result without test point (for unplanned tests)
           const testCaseResult: TestInterfaces.TestCaseResult = {
             testCase: { id: caseId },
-            testCaseTitle: result.testCase.name,
+            testCaseTitle: fullTestName,
             testCaseRevision: 1,
+            testPoint: { id: String(testPoint.id) },
             outcome: result.outcome,
             state: 'Completed',
             durationInMs: result.duration,
             errorMessage: result.error,
             stackTrace: result.stack,
+            // Add automated test information for better identification
+            automatedTestName: fullTestName,
+            automatedTestStorage: (result.testCase as any).file?.filepath || 'vitest',
+            runBy: {
+              displayName: 'Vitest Reporter',
+            }
           };
 
           testResults.push(testCaseResult);
-        } else {
-          // Create results for each selected test point
-          for (const testPoint of selectedTestPoints) {
-            const testCaseResult: TestInterfaces.TestCaseResult = {
-              testCase: { id: caseId },
-              testCaseTitle: result.testCase.name,
-              testCaseRevision: 1,
-              testPoint: { id: String(testPoint.id) },
-              outcome: result.outcome,
-              state: 'Completed',
-              durationInMs: result.duration,
-              errorMessage: result.error,
-              stackTrace: result.stack,
-            };
-
-            testResults.push(testCaseResult);
-          }
         }
       }
-
-      // Publish results
-      await api.addTestResultsToTestRun(testResults, this.azureOptions.projectName, this.testRunId);
-      this.logger.info(`Published ${testResults.length} test results`);
-
-      // Complete the test run
-      await api.updateTestRun(
-        { state: 'Completed' },
-        this.azureOptions.projectName,
-        this.testRunId
-      );
-      this.logger.info(`Completed test run ${this.testRunId}`);
-    } catch (error: any) {
-      this.logger.error(`Error publishing test results: ${error.message}`);
-      this.logger.error(`Stack trace: ${error.stack}`);
-      throw error;
     }
+
+    // Publish results
+    await api.addTestResultsToTestRun(testResults, this.azureOptions.projectName, this.testRunId!);
+    this.logger.info(`Published ${testResults.length} test results`);
+
+    // Complete the test run
+    await api.updateTestRun(
+      { state: 'Completed' },
+      this.azureOptions.projectName,
+      this.testRunId!
+    );
+    this.logger.info(`Completed test run ${this.testRunId}`);
+
+    // Ensure cleanup after reporting
+    await this.close();
   }
 
   async onTestModuleEnd(testModule: TestModule): Promise<void> {
@@ -452,6 +423,47 @@ class AzureDevOpsReporter implements Reporter {
     }
 
     return testCases;
+  }
+
+  private getCaseIdsFromAnnotations(testCase: TestCase): string[] {
+    const caseIds: string[] = [];
+    const annotations = testCase.annotations ? testCase.annotations() : [];
+    if (Array.isArray(annotations)) {
+      annotations.forEach((annotation: any) => {
+        if (annotation.message) {
+          const idRegex = /\[([0-9,\s]+)\]/g;
+          let match;
+          while ((match = idRegex.exec(annotation.message)) !== null) {
+            const ids = match[1].split(',').map(id => id.trim()).filter(id => id.length > 0);
+            caseIds.push(...ids);
+          }
+        }
+      });
+    }
+    const testNameRegex = /\[([0-9,\s]+)\]/g;
+    let nameMatch;
+    while ((nameMatch = testNameRegex.exec(testCase.name)) !== null) {
+      const ids = nameMatch[1].split(',').map(id => id.trim()).filter(id => id.length > 0);
+      caseIds.push(...ids);
+    }
+    const uniqueIds = [...new Set(caseIds)];
+    return uniqueIds;
+  }
+
+  private getAzureStatus(state: string): string {
+    switch (state) {
+      case 'passed':
+        return 'Passed';
+      case 'failed':
+        return 'Failed';
+      case 'skipped':
+        return 'NotApplicable';
+      case 'pending':
+        return 'Paused';
+      case 'unknown':
+      default:
+        return 'Passed';
+    }
   }
 }
 
