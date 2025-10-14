@@ -4,7 +4,7 @@ import type * as TestInterfaces from 'azure-devops-node-api/interfaces/TestInter
 import type * as Test from 'azure-devops-node-api/TestApi.js';
 import type { Reporter, TestCase, TestCollection, TestModule } from 'vitest/node';
 import Logger from './logger.js';
-
+import { IWorkItemTrackingApi } from "azure-devops-node-api/WorkItemTrackingApi";
 export interface AzureReporterOptions {
   token: string;
   planId: number;
@@ -35,6 +35,7 @@ interface TestResult {
 class AzureDevOpsReporter implements Reporter {
   private readonly logger: Logger;
   private testApi!: Promise<Test.ITestApi>;
+  private workItemApi!: Promise<IWorkItemTrackingApi>;
   private readonly azureConnection!: WebApi;
   private readonly azureOptions: Required<AzureReporterOptions>;
   private readonly pendingResults: TestResult[] = [];
@@ -95,6 +96,7 @@ class AzureDevOpsReporter implements Reporter {
 
     // Initialize test API
     this.testApi = this.azureConnection.getTestApi();
+    this.workItemApi = this.azureConnection.getWorkItemTrackingApi();
   }
 
   private validateConfig(): void {
@@ -235,54 +237,59 @@ class AzureDevOpsReporter implements Reporter {
     this.testRunId = run.id;
   }
 
+  private async updateAutomationProperties(testCase: TestCase, caseIds: string[]): Promise<void> {
+    if (this.azureOptions.isDisabled || caseIds.length === 0) {
+      return;
+    }
+
+    try {
+      const workItemApi = await this.workItemApi;
+
+      // Process each test case ID
+      for (const caseId of caseIds) {
+        const workItem = await workItemApi.getWorkItem(Number(caseId), ["Microsoft.VSTS.TCM.AutomationStatus"]);
+
+        if (workItem.fields?.["Microsoft.VSTS.TCM.AutomationStatus"] === "Not Automated") {
+          this.logger.info(`Found 'Not Automated' Test Case ${caseId}, will be marked as 'Automated'`);
+
+          const patchDocument = [
+            {
+              op: "add",
+              path: "/fields/Microsoft.VSTS.TCM.AutomatedTestName",
+              value: testCase.name,
+            },
+            {
+              op: "add",
+              path: "/fields/Microsoft.VSTS.TCM.AutomatedTestStorage",
+              value: "Bentley-Admin-App-playwright-tests",
+            },
+            {
+              op: "add",
+              path: "/fields/Microsoft.VSTS.TCM.AutomationStatus",
+              value: "Automated",
+            },
+            {
+              op: "add",
+              path: "/fields/Microsoft.VSTS.TCM.AutomatedTestId",
+              value: testCase.id || testCase.name,
+            },
+          ];
+
+          await workItemApi.updateWorkItem({}, patchDocument, workItem.id!);
+          this.logger.info(`Updated Test Case ${caseId} automation properties`);
+        } else {
+          this.logger.debug(`Test Case ${caseId} automation status: ${workItem.fields?.["Microsoft.VSTS.TCM.AutomationStatus"]}`);
+        }
+      }
+    } catch (error: any) {
+      this.logger.error(`Error updating automation properties for test case IDs ${caseIds.join(', ')}: ${error.message}`);
+    }
+  }
+
   async onTestRunEnd(testModules: ReadonlyArray<TestModule>) {
     if (this.azureOptions.isDisabled) {
       this.logger.info('Azure DevOps Reporter is disabled. Skipping test result publishing.');
       return;
-    }
-
-    // Process all test cases from all modules
-    for (const testModule of testModules) {
-      const testCases = this.getAllTestCases(testModule);
-
-      for (const testCase of testCases) {
-        const result = testCase.result();
-        const state = result?.state || 'unknown';
-
-        const caseIds = this.getCaseIdsFromAnnotations(testCase);
-
-        if (caseIds.length === 0) {
-          continue;
-        }
-
-        // Mark that we found annotated tests
-        this.hasAnnotatedTests = true;
-
-        // Ensure test run is created now that we know we have annotated tests
-        await this.ensureTestRunCreated();
-
-        // Get duration from the test task if available
-        const duration = (testCase as any).task?.result?.duration || 0;
-
-        const testResult: TestResult = {
-          testCase: testCase,
-          caseIds,
-          outcome: this.getAzureStatus(state),
-          duration: duration,
-        };
-
-        // Check the test result state for errors
-        if (state === 'failed' && result?.errors && result.errors.length > 0) {
-          testResult.error = result.errors
-            .map((error: any, idx: number) => `ERROR #${idx + 1}:\n${error.message?.replace(/\u001b\[.*?m/g, '')}`)
-            .join('\n\n');
-          testResult.stack = result.errors
-            .map((error: any, idx: number) => `STACK #${idx + 1}:\n${error.stack?.replace(/\u001b\[.*?m/g, '')}`)
-            .join('\n\n');
-        }
-
-        this.pendingResults.push(testResult);
-      }
     }
 
     if (!this.hasAnnotatedTests) {
@@ -350,7 +357,8 @@ class AzureDevOpsReporter implements Reporter {
           automatedTestType: 'Vitest',
           automatedTestStorage: (result.testCase as any).file?.filepath || 'vitest',
           runBy: {
-            displayName: 'Vitest Reporter',
+            id: process.env.BUILD_REQUESTEDFORID || undefined,
+            displayName: process.env.BUILD_REQUESTEDFOR || 'Vitest Reporter',
           }
         };
 
@@ -375,7 +383,8 @@ class AzureDevOpsReporter implements Reporter {
             automatedTestName: fullTestName,
             automatedTestStorage: (result.testCase as any).file?.filepath || 'vitest',
             runBy: {
-              displayName: 'Vitest Reporter',
+              id: process.env.BUILD_REQUESTEDFORID || undefined,
+              displayName: process.env.BUILD_REQUESTEDFOR || 'Vitest Reporter',
             }
           };
 
@@ -401,7 +410,54 @@ class AzureDevOpsReporter implements Reporter {
   }
 
   async onTestModuleEnd(testModule: TestModule): Promise<void> {
-    // This method is no longer needed as we process all modules in onTestRunEnd
+    if (this.azureOptions.isDisabled) {
+      return;
+    }
+
+    // Process all test cases in the module
+    const testCases = this.getAllTestCases(testModule);
+
+    for (const testCase of testCases) {
+      const result = testCase.result();
+      const state = result?.state || 'unknown';
+
+      const caseIds = this.getCaseIdsFromAnnotations(testCase);
+
+      if (caseIds.length === 0) {
+        continue;
+      }
+
+      // Update automation properties for test case IDs
+      await this.updateAutomationProperties(testCase, caseIds);
+
+      // Mark that we found annotated tests
+      this.hasAnnotatedTests = true;
+
+      // Ensure test run is created now that we know we have annotated tests
+      await this.ensureTestRunCreated();
+
+      // Get duration from the test task if available
+      const duration = (testCase as any).task?.result?.duration || 0;
+
+      const testResult: TestResult = {
+        testCase: testCase,
+        caseIds,
+        outcome: this.getAzureStatus(state),
+        duration: duration,
+      };
+
+      // Check the test result state for errors
+      if (state === 'failed' && result?.errors && result.errors.length > 0) {
+        testResult.error = result.errors
+          .map((error: any, idx: number) => `ERROR #${idx + 1}:\n${error.message?.replace(/\u001b\[.*?m/g, '')}`)
+          .join('\n\n');
+        testResult.stack = result.errors
+          .map((error: any, idx: number) => `STACK #${idx + 1}:\n${error.stack?.replace(/\u001b\[.*?m/g, '')}`)
+          .join('\n\n');
+      }
+
+      this.pendingResults.push(testResult);
+    }
   }
 
   private getAllTestCases(testModule: TestModule): TestCase[] {
