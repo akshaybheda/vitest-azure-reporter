@@ -10,7 +10,7 @@
         "test": "vitest run"
     },
     "dependencies": {
-        "vitest": "^3.2.4",
+        "vitest": "^4.0.16",
         "dotenv": "^16.4.5"
     }
 }

@@ -16,8 +16,7 @@ A Vitest reporter that integrates with Azure DevOps Test Plans to automatically 
 ## Requirements
 
 - **Node.js 20.0.0 or higher**
-- **ES Module support** (this package is published as ES modules)
-- **Vitest** as your test runner
+- **Vitest 4.0.16 or higher**
 
 ## Important Notes
 
@@ -40,6 +39,30 @@ or
 ```bash
 yarn add @akshaybheda/vitest-azure-reporter
 ```
+
+## Migration from v1.x to v2.0
+
+**v2.0.0 is a breaking change that requires Vitest v4.0.0 or higher.**
+
+If you're upgrading from v1.x:
+
+1. Update Vitest to v4:
+
+   ```bash
+   npm install vitest@^4.0.0
+   # or
+   yarn add vitest@^4.0.0
+   ```
+
+2. Update the reporter package:
+
+   ```bash
+   npm install @akshaybheda/vitest-azure-reporter@^2.0.0
+   # or
+   yarn add @akshaybheda/vitest-azure-reporter@^2.0.0
+   ```
+
+3. No configuration changes are required - the reporter API is backward compatible for user configurations.
 
 ## Usage
 
@@ -269,7 +292,6 @@ Reporter options (\* - required):
 ### Advanced Options
 
 - `publishTestResultsMode` [string] - Mode of publishing test results. Default: `'testRun'`. Available options:
-
   - `'testResult'` - Publish results of tests at the end of each test, parallel to test run
   - `'testRun'` - Publish test results to test run at the end of test run (recommended)
 
@@ -394,13 +416,11 @@ export default defineConfig({
 ### Common Issues
 
 1. **No test results published**
-
    - Ensure your tests have test case IDs in the format `[1234]` in test names
    - Check that `configurationIds` are correctly set in `testRunConfig`
    - Verify your Azure DevOps token has sufficient permissions
 
 2. **Authentication errors**
-
    - Verify your Azure DevOps Personal Access Token is valid
    - Ensure the token has "Test Plans (read & write)" permissions
    - Check that `orgUrl` and `projectName` are correct

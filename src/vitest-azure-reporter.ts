@@ -286,7 +286,7 @@ class AzureDevOpsReporter implements Reporter {
     }
   }
 
-  async onTestRunEnd(testModules: ReadonlyArray<TestModule>) {
+  async onTestRunEnd(testModules: ReadonlyArray<TestModule>, unhandledErrors: ReadonlyArray<any>, reason: 'passed' | 'failed' | 'interrupted') {
     if (this.azureOptions.isDisabled) {
       this.logger.info('Azure DevOps Reporter is disabled. Skipping test result publishing.');
       return;
