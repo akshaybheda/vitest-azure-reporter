@@ -1,2 +1,31 @@
 version: 2
-updates: []
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+
+    # ❌ Disable ALL regular version updates
+    ignore:
+      - dependency-name: "*"
+        update-types:
+          - "version-update:semver-major"
+          - "version-update:semver-minor"
+          - "version-update:semver-patch"
+
+    # ✅ Keep PRs manageable
+    open-pull-requests-limit: 10
+
+    # ✅ Add useful labels
+    labels:
+      - "dependencies"
+      - "security"
+      - "npm"
+
+    # ✅ Clean commit messages
+    commit-message:
+      prefix: "fix(deps)"
+      include: "scope"
+
+    # Optional: target a specific branch
+    # target-branch: "main"
