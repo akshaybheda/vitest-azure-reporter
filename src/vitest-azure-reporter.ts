@@ -145,22 +145,29 @@ class AzureDevOpsReporter implements Reporter {
   private async getTestPointsForTestCases(testCases: string[]): Promise<Map<string, TestInterfaces.TestPoint[]>> {
     const result = new Map<string, TestInterfaces.TestPoint[]>();
 
-    const testcaseIds = testCases.map(id => parseInt(id, 10));
-    const pointsQuery: TestInterfaces.TestPointsQuery = {
-      pointsFilter: { testcaseIds: testcaseIds },
-    };
+    const testcaseIds = [...new Set(testCases.map(id => parseInt(id, 10)).filter(id => !isNaN(id)))];
 
     const api = await this.testApi;
-    const points = await api.getPointsByQuery(pointsQuery, this.azureOptions.projectName);
 
-    if (points?.points) {
-      for (const point of points.points) {
-        if (point.testCase?.id) {
-          const testCaseId = point.testCase.id;
-          if (!result.has(testCaseId)) {
-            result.set(testCaseId, []);
+    // Azure DevOps allows a maximum of 200 test case ids per points query
+    const MAX_TEST_CASE_IDS_PER_QUERY = 190;
+    for (let i = 0; i < testcaseIds.length; i += MAX_TEST_CASE_IDS_PER_QUERY) {
+      const batch = testcaseIds.slice(i, i + MAX_TEST_CASE_IDS_PER_QUERY);
+      const pointsQuery: TestInterfaces.TestPointsQuery = {
+        pointsFilter: { testcaseIds: batch },
+      };
+
+      const points = await api.getPointsByQuery(pointsQuery, this.azureOptions.projectName);
+
+      if (points?.points) {
+        for (const point of points.points) {
+          if (point.testCase?.id) {
+            const testCaseId = point.testCase.id;
+            if (!result.has(testCaseId)) {
+              result.set(testCaseId, []);
+            }
+            result.get(testCaseId)!.push(point);
           }
-          result.get(testCaseId)!.push(point);
         }
       }
     }
